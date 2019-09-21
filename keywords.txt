@@ -1,0 +1,77 @@
+#######################################
+# Syntax Coloring Map For Si5351_I2C
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+Si5351_I2C	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+initialize	KEYWORD2
+initDevice	KEYWORD2
+getStatus	KEYWORD2
+getStickyStatus	KEYWORD2
+setStickyStatus	KEYWORD2
+getStatusMask	KEYWORD2
+setStatusMask	KEYWORD2
+getOutputEnable	KEYWORD2
+setOutputEnable	KEYWORD2
+setOutputDisable	KEYWORD2
+getOutputControlMask	KEYWORD2
+setOutputControlMask	KEYWORD2
+getCLKIN_DIV	KEYWORD2
+setCLKIN_DIV	KEYWORD2
+getPLLA_SRC	KEYWORD2
+setPLLA_SRC	KEYWORD2
+getPLLB_SRC	KEYWORD2
+setPLLB_SRC	KEYWORD2
+getClkPowerDown	KEYWORD2
+setClkPowerDown	KEYWORD2
+getClkMSSource	KEYWORD2
+setClkMSSource	KEYWORD2
+getClkInvert	KEYWORD2
+setClkInvert	KEYWORD2
+getClkSrc	KEYWORD2
+setClkSrc	KEYWORD2
+getClkIDrive	KEYWORD2
+setClkIDrive	KEYWORD2
+getClkDisableState	KEYWORD2
+setClkDisableState	KEYWORD2
+getMSA	KEYWORD2
+setMSA	KEYWORD2
+getMSB	KEYWORD2
+setMSB	KEYWORD2
+getMS	KEYWORD2
+setMS	KEYWORD2
+getSSPEnable	KEYWORD2
+setSSPEnable	KEYWORD2
+setSSPDisable	KEYWORD2
+getSSP	KEYWORD2
+setSSP	KEYWORD2
+getVCXO	KEYWORD2
+setVCXO	KEYWORD2
+getPhaseOffset	KEYWORD2
+setPhaseOffset	KEYWORD2
+PLLSoftReset	KEYWORD2
+getXTALLoadCap	KEYWORD2
+setXTALLoadCap	KEYWORD2
+calcMSPLL	KEYWORD2
+decalcMSPLL	KEYWORD2
+calcMSClk	KEYWORD2
+decalcMSClk	KEYWORD2
+calcSSP	KEYWORD2
+calcVCXO	KEYWORD2
+
+#######################################
+# Instances (KEYWORD2)
+#######################################
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
