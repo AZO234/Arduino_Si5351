@@ -1,6 +1,6 @@
 Library of clock generator Si5351(I2C bus) by AZO
 =================================================
-version: v1.0.0(Sep 21, 2019)  
+version: v1.0.1(Sep 26, 2019)  
 http://domisan.sakura.ne.jp/
 
 Library of Si5351(I2C bus).
@@ -9,6 +9,14 @@ First constrast instance of class Si5351_I2C with Wire instance.
 Next setting PLL with setMSx() and PLLSoftReset().  
 And setting MS/CLK with setMS().   
 Then output with setOutputEnable().
+
+On this library with 'softFloat' library, more resolution.  
+https://github.com/AZO234/Arduino_berkeley-softfloat-3
+
+Then define follow in si5351.h.
+```
+#define SI5351_USE_BERKELEY_SOFTFLOAT_3
+```
 
 Reference
 ---------

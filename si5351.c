@@ -1,4 +1,5 @@
-#include <math.h>
+/* Si5351 Driver by AZO */
+
 #include "si5351.h"
 
 /*
@@ -1014,7 +1015,7 @@ bool Si5351_GetSSP(Si5351_SSP_t* ptSSP, const Si5351_t* ptSi5351) {
         au8Value[u8Reg] = ptSi5351->tRead(ptSi5351->pInstance, 0x95 + u8Reg);
       }
 
-      ptSSP->tSSC_MODE = ((au8Value[2] >> 7) & 0x1);
+      ptSSP->tSSC_MODE = (Si5351_SSP_Mode_t)((au8Value[2] >> 7) & 0x1);
       ptSSP->u16SSDN_P1 = ((uint16_t)(au8Value[5] & 0x0F) << 8) | au8Value[4];
       ptSSP->u16SSDN_P2 = ((uint16_t)(au8Value[0] & 0x7F) << 8) | au8Value[1];
       ptSSP->u16SSDN_P3 = ((uint16_t)(au8Value[2] & 0x7F) << 8) | au8Value[3];
@@ -1180,47 +1181,37 @@ bool Si5351_SetXTALLoadCap(const Si5351_t* ptSi5351, const Si5351_XTALLoadCap_t 
 
 /* Utility */
 
-bool Si5351_CalcMSPLL(Si5351_MS_t* ptMS, double dBaseClock, double dOutput) {
+#if defined(SI5351_USE_BERKELEY_SOFTFLOAT_3)
+static uint64_t f64_floor(float64_t f64Value) {
+  return f64_to_ui64(f64_add(f64Value, f64_div(ui64_to_f64(1), ui64_to_f64(2))), softfloat_round_minMag, false); 
+}
+
+bool Si5351_CalcMSPLL(Si5351_MS_t* ptMS, const float64_t f64BaseClock, const float64_t f64Output) {
   bool bValid = false;
-  double dRatio;
-  double dAfter;
+  float64_t f64Ratio;
+  float64_t f64After;
   uint32_t u32a;
   uint32_t u32b;
-  uint32_t u32c;
 
-  if(ptMS && dBaseClock > 0 && dOutput > 0) {
-    dRatio = dOutput / dBaseClock;
-
-    if(dRatio >= 15 && dRatio <= 90) {
+  if(ptMS && !f64_le(f64BaseClock, ui64_to_f64(0)) && !f64_le(f64Output, ui64_to_f64(0))) {
+    f64Ratio = f64_div(f64Output, f64BaseClock);
+    if(!f64_lt(f64Ratio, ui64_to_f64(15)) && f64_le(f64Ratio, ui64_to_f64(90))) {
       bValid = true;
       ptMS->bDivBy4 = false;
       ptMS->tDIV = SI5351_MS_DIV_BY1;
-      if(dRatio - (uint32_t)dRatio == 0) {
+      f64After = f64_sub(f64Ratio, f64_roundToInt(f64Ratio, softfloat_round_minMag, false));
+      u32a = f64_to_ui64(f64Ratio, softfloat_round_minMag, false);
+      u32b = f64_to_ui64(f64_mul(f64After, ui64_to_f64(524288)), softfloat_round_minMag, false);
+      if(u32b == 0) {
         ptMS->bInteger = true;
-        bValid = true;
-        ptMS->u32MSX_P1 = ((uint32_t)dRatio << 7) - 512;
+        ptMS->u32MSX_P1 = (u32a << 7) - 512;
         ptMS->u32MSX_P2 = 0;
-        ptMS->u32MSX_P3 = 1048575;
+        ptMS->u32MSX_P3 = 524288;
       } else {
         ptMS->bInteger = false;
-        u32a = (uint32_t)dRatio;
-        dAfter = dRatio - (uint32_t)dRatio;
-        for(dRatio = 1; dRatio >= dAfter; dRatio *= 0.1);
-        if(dRatio != dAfter) {
-          dRatio *= 10;
-        }
-        u32b = (uint32_t)(dAfter * 10000000);
-        u32c = (uint32_t)(dRatio * 10000000);
-        while(((u32b << 7) - u32c * (uint32_t)floor(128 * dAfter) > 1048576) || u32c > 1048576) {
-          u32b >>= 1;
-          u32c >>= 1;
-        }
-        if(u32c == 1048576) {
-          u32c -= 1;
-        }
-        ptMS->u32MSX_P1 = (u32a << 7) + (uint32_t)floor(128 * dAfter) - 512;
-        ptMS->u32MSX_P2 = (u32b << 7) - u32c * (uint32_t)floor(128 * dAfter);
-        ptMS->u32MSX_P3 = u32c;
+        ptMS->u32MSX_P1 = (u32a << 7) + f64_floor(f64_mul(ui64_to_f64(128), f64After)) - 512;
+        ptMS->u32MSX_P2 = (u32b << 7) - 524288 * f64_floor(f64_mul(ui64_to_f64(128), f64After));
+        ptMS->u32MSX_P3 = 524288;
       }
     }
   }
@@ -1228,12 +1219,218 @@ bool Si5351_CalcMSPLL(Si5351_MS_t* ptMS, double dBaseClock, double dOutput) {
   return bValid;
 }
 
-bool Si5351_DecalcMSPLL(double* pdOutput, double dBaseClock, const Si5351_MS_t* ptMS) {
+bool Si5351_DecalcMSPLL(float64_t* pf64Output, const float64_t f64BaseClock, const Si5351_MS_t* ptMS) {
   bool bValid = false;
-  double dRatio;
+  float64_t f64Ratio;
+
+  if(pf64Output && !f64_le(f64BaseClock, ui64_to_f64(0)) && ptMS) {
+    if(
+      ptMS->u32MSX_P1 < 0x40000  &&
+      ptMS->u32MSX_P2 < 0x100000 &&
+      ptMS->u32MSX_P3 < 0x100000 &&
+      ptMS->u32MSX_P3 > 0
+    ) {
+      if(ptMS->bInteger) {
+        if(ptMS->u32MSX_P2 == 0) {
+          bValid = true;
+          f64Ratio = ui64_to_f64((ptMS->u32MSX_P1 + 512) >> 7);
+        }
+      } else {
+        bValid = true;
+        f64Ratio = f64_add(f64_div(ui64_to_f64(ptMS->u32MSX_P1), ui64_to_f64(128)), ui64_to_f64(4));
+        f64Ratio = f64_add(f64Ratio, f64_div(ui64_to_f64(ptMS->u32MSX_P2), ui64_to_f64(128 * 524288)));
+      }
+    }
+    if(bValid) {
+      if(!f64_lt(f64Ratio, ui64_to_f64(15)) && f64_le(f64Ratio, ui64_to_f64(90))) {
+        *pf64Output = f64_mul(f64BaseClock, f64Ratio);
+      } else {
+        bValid = false;
+      }
+    }
+  }
+
+  return bValid;
+}
+
+bool Si5351_CalcMSClk(Si5351_MS_t* ptMS, const float64_t f64BaseClock, const float64_t f64Output) {
+  bool bValid = false;
+  float64_t f64Ratio, f64RatioTemp;
+  float64_t f64After, f64AfterTemp;
   uint32_t u32a;
   uint32_t u32b;
-  uint32_t u32c;
+
+  if(ptMS && !f64_le(f64BaseClock, ui64_to_f64(0)) && !f64_le(f64Output, ui64_to_f64(0))) {
+    f64Ratio = f64_div(f64BaseClock, f64Output);
+    if(!f64_lt(f64Ratio, ui64_to_f64(6)) && f64_le(f64Ratio, ui64_to_f64(1800))) {
+      bValid = true;
+      ptMS->bDivBy4 = false;
+      ptMS->tDIV = SI5351_MS_DIV_BY1;
+      for(u32a = 0; u32a < 8; u32a++) {
+        f64RatioTemp = f64_div(f64Ratio, ui64_to_f64(1 << (u32a + 1 + (ptMS->bDivBy4 ? 2 : 0))));
+        f64AfterTemp = f64_sub(f64RatioTemp, f64_roundToInt(f64RatioTemp, softfloat_round_minMag, false));
+        if(f64_lt(f64RatioTemp, ui64_to_f64(4)) || f64_lt(ui64_to_f64(f64_to_ui64(f64_mul(f64AfterTemp, ui64_to_f64(524288)), softfloat_round_minMag, false) << 7), ui64_to_f64(524288 * f64_floor(f64_mul(ui64_to_f64(128), f64AfterTemp)))) || !f64_eq(f64Ratio, f64_mul(f64RatioTemp, ui64_to_f64(1 << (u32a + 1 + (ptMS->bDivBy4 ? 2 : 0)))))) {
+          break;
+        }
+      }
+      if(u32a == 8) {
+        ptMS->tDIV = SI5351_MS_DIV_BY128;
+      } else {
+        ptMS->tDIV = (Si5351_MS_DIV_t)u32a;
+      }
+      f64Ratio = f64_div(f64Ratio, ui64_to_f64(1 << (ptMS->tDIV + (ptMS->bDivBy4 ? 2 : 0))));
+      f64After = f64_sub(f64Ratio, f64_roundToInt(f64Ratio, softfloat_round_minMag, false));
+      u32a = f64_to_ui64(f64Ratio, softfloat_round_minMag, false);
+      u32b = f64_to_ui64(f64_mul(f64After, ui64_to_f64(524288)), softfloat_round_minMag, false);
+      if(u32b == 0) {
+        ptMS->bInteger = true;
+        ptMS->u32MSX_P1 = (u32a << 7) - 512;
+        ptMS->u32MSX_P2 = 0;
+        ptMS->u32MSX_P3 = 524288;
+      } else {
+        ptMS->bInteger = false;
+        ptMS->u32MSX_P1 = (u32a << 7) + f64_floor(f64_mul(ui64_to_f64(128), f64After)) - 512;
+        ptMS->u32MSX_P2 = (u32b << 7) - 524288 * f64_floor(f64_mul(ui64_to_f64(128), f64After));
+        ptMS->u32MSX_P3 = 524288;
+      }
+    }
+  }
+
+  return bValid;
+}
+
+bool Si5351_DecalcMSClk(float64_t* pf64Output, const float64_t f64BaseClock, const Si5351_MS_t* ptMS) {
+  bool bValid = false;
+  float64_t f64Ratio;
+
+  if(pf64Output && !f64_le(f64BaseClock, ui64_to_f64(0)) && ptMS) {
+    if(
+      ptMS->u32MSX_P1 < 0x40000  &&
+      ptMS->u32MSX_P2 < 0x100000 &&
+      ptMS->u32MSX_P3 < 0x100000 &&
+      ptMS->u32MSX_P3 > 0
+    ) {
+      if(ptMS->bInteger) {
+        if(ptMS->u32MSX_P2 == 0) {
+          bValid = true;
+          f64Ratio = ui64_to_f64((ptMS->u32MSX_P1 + 512) >> 7);
+        }
+      } else {
+        bValid = true;
+        f64Ratio = f64_add(f64_div(ui64_to_f64(ptMS->u32MSX_P1), ui64_to_f64(128)), ui64_to_f64(4));
+        f64Ratio = f64_add(f64Ratio, f64_div(ui64_to_f64(ptMS->u32MSX_P2), ui64_to_f64(128 * 524288)));
+      }
+    }
+    if(bValid) {
+      f64Ratio = f64_mul(f64Ratio, ui64_to_f64(1 << (ptMS->tDIV + (ptMS->bDivBy4 ? 2 : 0))));
+      if(!f64_lt(f64Ratio, ui64_to_f64(6)) && f64_le(f64Ratio, ui64_to_f64(1800))) {
+        *pf64Output = f64_div(f64BaseClock, f64Ratio);
+      } else {
+        bValid = false;
+      }
+    }
+  }
+
+  return bValid;
+}
+
+bool Si5351_CalcSSP(
+  Si5351_SSP_t* ptSSP,
+  const Si5351_SSP_Mode_t tSSC_MODE,
+  const float64_t f64Freq_PFD,
+  const float64_t f64Ratio,
+  const float64_t f64SscAmp
+) {
+  bool bValid = false;
+  float64_t f64SSUPDN;
+
+  if(ptSSP && !f64_lt(f64Freq_PFD, ui64_to_f64(0)) && f64_lt(f64_div(f64Freq_PFD, ui64_to_f64(4 * 35100)), ui64_to_f64(65536))) {
+    ptSSP->tSSC_MODE = (Si5351_SSP_Mode_t)(tSSC_MODE & 1);
+    ptSSP->u16SSUDP = f64_to_ui64(f64_add(f64_div(f64Freq_PFD, ui64_to_f64(4 * 35100)), f64_div(ui64_to_f64(1), ui64_to_f64(2))), softfloat_round_minMag, false);
+    if(ptSSP->tSSC_MODE == SI5351_SSP_MODE_DOWN) {
+      if(
+        !f64_lt(f64SscAmp, f64_mul(i64_to_f64(-1), f64_div(ui64_to_f64(25), ui64_to_f64(1000)))) &&
+         f64_le(f64SscAmp, f64_mul(i64_to_f64(-1), f64_div(ui64_to_f64(1), ui64_to_f64(1000))))
+      ) {
+        bValid = true;
+        f64SSUPDN = f64_mul(ui64_to_f64(64), f64_mul(f64Ratio, f64_div(f64SscAmp, f64_mul(f64_add(ui64_to_f64(1), f64SscAmp), ui64_to_f64(ptSSP->u16SSUDP)))));
+        ptSSP->u16SSDN_P1 = f64_to_ui64(f64_add(f64SSUPDN, f64_div(ui64_to_f64(1), ui64_to_f64(2))), softfloat_round_minMag, false);
+        ptSSP->u16SSDN_P2 = f64_to_ui64(f64_mul(ui64_to_f64(32767), f64_sub(f64SSUPDN, ui64_to_f64(ptSSP->u16SSDN_P1))), softfloat_round_minMag, false);
+        ptSSP->u16SSDN_P3 = 32767;
+        ptSSP->u16SSUP_P1 = 0;
+        ptSSP->u16SSUP_P2 = 0;
+        ptSSP->u16SSUP_P3 = 1;
+      }
+    } else if(ptSSP->tSSC_MODE == SI5351_SSP_MODE_CENTER) {
+      if(
+        !f64_lt(f64SscAmp, f64_mul(i64_to_f64(-1), f64_div(ui64_to_f64(15), ui64_to_f64(1000)))) &&
+         f64_le(f64SscAmp, f64_div(ui64_to_f64(15), ui64_to_f64(1000)))
+      ) {
+        bValid = true;
+        f64SSUPDN = f64_mul(ui64_to_f64(128), f64_mul(f64Ratio, f64_div(f64SscAmp, f64_mul(f64_add(ui64_to_f64(1), f64SscAmp), ui64_to_f64(ptSSP->u16SSUDP)))));
+        ptSSP->u16SSDN_P1 = f64_to_ui64(f64_add(f64SSUPDN, f64_div(ui64_to_f64(1), ui64_to_f64(2))), softfloat_round_minMag, false);
+        ptSSP->u16SSDN_P2 = f64_to_ui64(f64_mul(ui64_to_f64(32767), f64_sub(f64SSUPDN, ui64_to_f64(ptSSP->u16SSDN_P1))), softfloat_round_minMag, false);
+        ptSSP->u16SSDN_P3 = 32767;
+        f64SSUPDN = f64_mul(ui64_to_f64(128), f64_mul(f64Ratio, f64_div(f64SscAmp, f64_mul(f64_sub(ui64_to_f64(1), f64SscAmp), ui64_to_f64(ptSSP->u16SSUDP)))));
+        ptSSP->u16SSUP_P1 = f64_to_ui64(f64_add(f64SSUPDN, f64_div(ui64_to_f64(1), ui64_to_f64(2))), softfloat_round_minMag, false);
+        ptSSP->u16SSUP_P2 = f64_to_ui64(f64_mul(ui64_to_f64(32767), f64_sub(f64SSUPDN, ui64_to_f64(ptSSP->u16SSDN_P1))), softfloat_round_minMag, false);
+        ptSSP->u16SSUP_P3 = 32767;
+      }
+    }
+  }
+
+  return bValid;
+}
+
+#if SI5351_TYPE == 1
+bool Si5351_CalcVCXO(uint32_t* pu32VCXO, const float64_t f64Ratio, const uint8_t u8APR) {
+  bool bValid = false;
+
+  if(pu32VCXO) {
+    bValid = true;
+    *pu32VCXO = ui64_to_f64(f64_add(f64_add(f64_div(u64_to_f64(103), u64_to_f64(100)), u64_to_f64(128 * u8APR)), f64Ratio), softfloat_round_minMag, false);
+  }
+
+  return bValid;
+}
+#endif
+#else  /* SI5351_USE_BERKELEY_SOFTFLOAT_3 */
+bool Si5351_CalcMSPLL(Si5351_MS_t* ptMS, const double dBaseClock, const double dOutput) {
+  bool bValid = false;
+  double dRatio;
+  double dAfter;
+  uint32_t u32a;
+  uint32_t u32b;
+
+  if(ptMS && dBaseClock > 0 && dOutput > 0) {
+    dRatio = dOutput / dBaseClock;
+    if(dRatio >= 15 && dRatio <= 90) {
+      bValid = true;
+      ptMS->bDivBy4 = false;
+      ptMS->tDIV = SI5351_MS_DIV_BY1;
+      dAfter = dRatio - (uint32_t)dRatio;
+      u32a = (uint32_t)dRatio;
+      u32b = (uint32_t)(dAfter * 524288);
+      if(u32b == 0) {
+        ptMS->bInteger = true;
+        ptMS->u32MSX_P1 = (u32a << 7) - 512;
+        ptMS->u32MSX_P2 = 0;
+        ptMS->u32MSX_P3 = 524288;
+      } else {
+        ptMS->bInteger = false;
+        ptMS->u32MSX_P1 = (u32a << 7) + (uint32_t)((128 * dAfter) + 0.5) - 512;
+        ptMS->u32MSX_P2 = (u32b << 7) - 524288 * (uint32_t)((128 * dAfter) + 0.5);
+        ptMS->u32MSX_P3 = 524288;
+      }
+    }
+  }
+
+  return bValid;
+}
+
+bool Si5351_DecalcMSPLL(double* pdOutput, const double dBaseClock, const Si5351_MS_t* ptMS) {
+  bool bValid = false;
+  double dRatio;
 
   if(pdOutput && dBaseClock > 0 && ptMS) {
     if(
@@ -1245,17 +1442,12 @@ bool Si5351_DecalcMSPLL(double* pdOutput, double dBaseClock, const Si5351_MS_t* 
       if(ptMS->bInteger) {
         if(ptMS->u32MSX_P2 == 0) {
           bValid = true;
-          u32a = (ptMS->u32MSX_P1 + 512) >> 7;
-          dRatio = u32a;
+          dRatio = (ptMS->u32MSX_P1 + 512) >> 7;
         }
       } else {
         bValid = true;
-        u32c = ptMS->u32MSX_P3;
-        dRatio = (double)(((double)ptMS->u32MSX_P1 + 512 + ((double)ptMS->u32MSX_P2 / u32c)) / 128);
-        dRatio -= (uint32_t)dRatio;
-        u32b = (ptMS->u32MSX_P2 + (u32c * (uint32_t)(128 * dRatio))) >> 7;
-        u32a = (ptMS->u32MSX_P1 + 512 - (uint32_t)(128.0 * dRatio)) >> 7;
-        dRatio = u32a + (double)u32b / u32c;
+        dRatio = ptMS->u32MSX_P1 / 128 + 4;
+        dRatio += (double)ptMS->u32MSX_P2 / (128 * 524288);
       }
     }
     if(bValid) {
@@ -1270,93 +1462,45 @@ bool Si5351_DecalcMSPLL(double* pdOutput, double dBaseClock, const Si5351_MS_t* 
   return bValid;
 }
 
-bool Si5351_CalcMSClk(Si5351_MS_t* ptMS, double dBaseClock, double dOutput) {
+bool Si5351_CalcMSClk(Si5351_MS_t* ptMS, const double dBaseClock, const double dOutput) {
   bool bValid = false;
-  double dRatio;
-  double dRatioTemp;
-  double dAfter;
+  double dRatio, dRatioTemp;
+  double dAfter, dAfterTemp;
   uint32_t u32a;
   uint32_t u32b;
-  uint32_t u32c;
 
-  if(ptMS && dBaseClock > 0 && dOutput > 0) {
+  if(ptMS && dBaseClock >0 && dOutput > 0) {
     dRatio = dBaseClock / dOutput;
-
-    if(dRatio * 128 > 512) {
-      if(dRatio - (uint32_t)dRatio == 0) {
-        for(u32a = 0; u32a < 10; u32a++) {
-          dRatioTemp = dRatio / (1 << u32a);
-          if((dRatio != dRatioTemp * (1 << u32a)) || dRatioTemp < 6 || dRatioTemp - (uint32_t)dRatioTemp != 0) {
-            break;
-          }
-        }
-      } else {
-        for(u32a = 0; u32a < 10; u32a++) {
-          dRatioTemp = (dRatio * 1000) / (1 << u32a);
-          if((dRatio * 1000 != dRatioTemp * 1000 * (1 << u32a)) || dRatioTemp < 6000) {
-            break;
-          }
+    if(dRatio >= 6 && dRatio <= 1800) {
+      bValid = true;
+      ptMS->bDivBy4 = false;
+      ptMS->tDIV = SI5351_MS_DIV_BY1;
+      for(u32a = 0; u32a < 8; u32a++) {
+        dRatioTemp = dRatio / (1 << (u32a + 1 + (ptMS->bDivBy4 ? 2 : 0)));
+        dAfterTemp = dRatioTemp - (uint32_t)dRatioTemp;
+        if(dRatioTemp < 4 || (((uint32_t)dAfterTemp * 524288) << 7) < (524288 * (uint32_t)((128 * dAfterTemp) + 0.5)) || dRatio != dRatioTemp * (1 << (u32a + 1 + (ptMS->bDivBy4 ? 2 : 0)))) {
+          break;
         }
       }
-      if(u32a != 0) {
-        u32a--;
-        dRatio /= 1 << u32a;
-      }
-      if(u32a >= 2) {
-        ptMS->tDIV = (Si5351_MS_DIV_t)u32a - 2;
-        ptMS->bDivBy4 = true;
+      if(u32a == 8) {
+        ptMS->tDIV = SI5351_MS_DIV_BY128;
       } else {
         ptMS->tDIV = (Si5351_MS_DIV_t)u32a;
-        ptMS->bDivBy4 = false;
       }
-    } else {
-      ptMS->tDIV = SI5351_MS_DIV_BY1;
-      ptMS->bDivBy4 = false;
-    }
-
-    if(dRatio - (uint32_t)dRatio == 0) {
-      ptMS->bInteger = true;
-      if(dOutput <= 150000000) {
-        if(dRatio >= 6 && dRatio <= 1800) {
-          bValid = true;
-          ptMS->u32MSX_P1 = ((uint32_t)dRatio << 7) - 512;
-          ptMS->u32MSX_P2 = 0;
-          ptMS->u32MSX_P3 = 1048575;
-        }
+      dRatio /= 1 << (ptMS->tDIV + (ptMS->bDivBy4 ? 2 : 0));
+      dAfter = dRatio - (uint32_t)dRatio;
+      u32a = (uint32_t)dRatio;
+      u32b = (uint32_t)(dAfter * 524288);
+      if(u32b == 0) {
+        ptMS->bInteger = true;
+        ptMS->u32MSX_P1 = (u32a << 7) - 512;
+        ptMS->u32MSX_P2 = 0;
+        ptMS->u32MSX_P3 = 524288;
       } else {
-        if(dBaseClock / dOutput == 4) {
-          bValid = true;
-          ptMS->u32MSX_P1 = 0;
-          ptMS->u32MSX_P2 = 0;
-          ptMS->u32MSX_P3 = 1;
-          ptMS->bDivBy4 = true;
-        }
-      }
-    } else {
-      ptMS->bInteger = false;
-      if(dOutput <= 150000000) {
-        if(dRatio * (1 << ptMS->tDIV) * (1 << (ptMS->bDivBy4 ? 2 : 0)) >= 6 && dRatio * (1 << ptMS->tDIV) * (1 << (ptMS->bDivBy4 ? 2 : 0)) <= 1800) {
-          bValid = true;
-          ptMS->bInteger = false;
-          u32a = (uint32_t)dRatio;
-          dAfter = dRatio - (uint32_t)dRatio;
-          for(dRatio = 1; dRatio >= dAfter; dRatio *= 0.1);
-          if(dRatio != dAfter) {
-            dRatio *= 10;
-          }
-          u32b = (uint32_t)(dAfter * 10000000);
-          u32c = (uint32_t)(dRatio * 10000000);
-          while(((u32b << 7) - u32c * (uint32_t)floor(128 * dAfter) > 1048576) || u32c > 1048576) {
-            u32b >>= 1;
-            u32c >>= 1;
-          }
-          if(u32c == 1048576) {
-            u32c -= 1;
-          }
-          ptMS->u32MSX_P1 = (u32a << 7) + (uint32_t)floor(128 * dAfter) - 512;
-          ptMS->u32MSX_P2 = (u32b << 7) - u32c * (uint32_t)floor(128 * dAfter);
-          ptMS->u32MSX_P3 = u32c;
-        }
+        ptMS->bInteger = false;
+        ptMS->u32MSX_P1 = (u32a << 7) + (uint32_t)((128 * dAfter) + 0.5) - 512;
+        ptMS->u32MSX_P2 = (u32b << 7) - 524288 * (uint32_t)((128 * dAfter) + 0.5);
+        ptMS->u32MSX_P3 = 524288;
       }
     }
   }
@@ -1364,12 +1508,9 @@ bool Si5351_CalcMSClk(Si5351_MS_t* ptMS, double dBaseClock, double dOutput) {
   return bValid;
 }
 
-bool Si5351_DecalcMSClk(double* pdOutput, double dBaseClock, const Si5351_MS_t* ptMS) {
+bool Si5351_DecalcMSClk(double* pdOutput, const double dBaseClock, const Si5351_MS_t* ptMS) {
   bool bValid = false;
   double dRatio;
-  uint32_t u32a;
-  uint32_t u32b;
-  uint32_t u32c;
 
   if(pdOutput && dBaseClock > 0 && ptMS) {
     if(
@@ -1381,22 +1522,16 @@ bool Si5351_DecalcMSClk(double* pdOutput, double dBaseClock, const Si5351_MS_t* 
       if(ptMS->bInteger) {
         if(ptMS->u32MSX_P2 == 0) {
           bValid = true;
-          u32a = (ptMS->u32MSX_P1 + 512) >> 7;
-          dRatio = u32a;
-          dRatio *= (1 << ptMS->tDIV) * (1 << (ptMS->bDivBy4 ? 2 : 0));
+          dRatio = (ptMS->u32MSX_P1 + 512) >> 7;
         }
       } else {
         bValid = true;
-        u32c = ptMS->u32MSX_P3;
-        dRatio = (double)(((double)ptMS->u32MSX_P1 + 512 + ((double)ptMS->u32MSX_P2 / u32c)) / 128);
-        dRatio -= (uint32_t)dRatio;
-        u32b = (ptMS->u32MSX_P2 + (u32c * (uint32_t)(128 * dRatio))) >> 7;
-        u32a = (ptMS->u32MSX_P1 + 512 - (uint32_t)(128.0 * dRatio)) >> 7;
-        dRatio = u32a + (double)u32b / u32c;
-        dRatio *= (1 << ptMS->tDIV) * (1 << (ptMS->bDivBy4 ? 2 : 0));
+        dRatio = (double)ptMS->u32MSX_P1 / 128 + 4;
+        dRatio += (double)(ptMS->u32MSX_P2 >> 7) / 524288;
       }
     }
     if(bValid) {
+      dRatio *= 1 << (ptMS->tDIV + (ptMS->bDivBy4 ? 2 : 0));
       if(dRatio >= 6 && dRatio <= 1800) {
         *pdOutput = dBaseClock / dRatio;
       } else {
@@ -1410,7 +1545,6 @@ bool Si5351_DecalcMSClk(double* pdOutput, double dBaseClock, const Si5351_MS_t* 
 
 bool Si5351_CalcSSP(
   Si5351_SSP_t* ptSSP,
-  const bool bEnable,
   const Si5351_SSP_Mode_t tSSC_MODE,
   const double dFreq_PFD,
   const double dRatio,
@@ -1421,29 +1555,29 @@ bool Si5351_CalcSSP(
 
   if(ptSSP && dFreq_PFD >= 0 && (dFreq_PFD / (4 * 35100) < 65536)) {
     ptSSP->tSSC_MODE = (Si5351_SSP_Mode_t)(tSSC_MODE & 1);
-    ptSSP->u16SSUDP = floor(dFreq_PFD / (4 * 35100));
+    ptSSP->u16SSUDP = (uint16_t)(dFreq_PFD / (4 * 35100) + 0.5);
     if(ptSSP->tSSC_MODE == SI5351_SSP_MODE_DOWN) {
       if(dSscAmp >= -0.025 && dSscAmp <= -0.001) {
         bValid = true;
         dSSUPDN = 64 * dRatio * (dSscAmp / ((1 + dSscAmp) * ptSSP->u16SSUDP));
-        ptSSP->u16SSDN_P1 = floor(dSSUPDN);
+        ptSSP->u16SSDN_P1 = (uint16_t)(dSSUPDN + 0.5);
         ptSSP->u16SSDN_P2 = 32767 * (dSSUPDN - ptSSP->u16SSDN_P1);
         ptSSP->u16SSDN_P3 = 32767;
         ptSSP->u16SSUP_P1 = 0;
-        ptSSP->u16SSDN_P2 = 0;
-        ptSSP->u16SSDN_P3 = 1;
+        ptSSP->u16SSUP_P2 = 0;
+        ptSSP->u16SSUP_P3 = 1;
       }
     } else if(ptSSP->tSSC_MODE == SI5351_SSP_MODE_CENTER) {
       if(dSscAmp >= -0.015 && dSscAmp <=  0.015) {
         bValid = true;
         dSSUPDN = 128 * dRatio * (dSscAmp / ((1 + dSscAmp) * ptSSP->u16SSUDP));
-        ptSSP->u16SSDN_P1 = floor(dSSUPDN);
+        ptSSP->u16SSDN_P1 = (uint16_t)(dSSUPDN + 0.5);
         ptSSP->u16SSDN_P2 = 32767 * (dSSUPDN - ptSSP->u16SSDN_P1);
         ptSSP->u16SSDN_P3 = 32767;
         dSSUPDN = 128 * dRatio * (dSscAmp / ((1 - dSscAmp) * ptSSP->u16SSUDP));
-        ptSSP->u16SSUP_P1 = floor(dSSUPDN);
-        ptSSP->u16SSDN_P2 = 32767 * (dSSUPDN - ptSSP->u16SSUP_P1);
-        ptSSP->u16SSDN_P3 = 32767;
+        ptSSP->u16SSUP_P1 = (uint16_t)(dSSUPDN + 0.5);
+        ptSSP->u16SSUP_P2 = 32767 * (dSSUPDN - ptSSP->u16SSUP_P1);
+        ptSSP->u16SSUP_P3 = 32767;
       }
     }
   }
@@ -1463,6 +1597,7 @@ bool Si5351_CalcVCXO(uint32_t* pu32VCXO, const double dRatio, const uint8_t u8AP
   return bValid;
 }
 #endif
+#endif  /* SI5351_USE_BERKELEY_SOFTFLOAT_3 */
 
 #ifdef __cplusplus
 }

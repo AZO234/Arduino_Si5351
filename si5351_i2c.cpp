@@ -1,3 +1,5 @@
+/* Si5351 I2C Driver by AZO */
+
 #include <stdio.h>
 #include "si5351_i2c.h"
 
@@ -301,31 +303,63 @@ bool Si5351_I2C::setXTALLoadCap(const Si5351_XTALLoadCap_t tXTALLoadCap) {
 
 /* Utility */
 
-bool Si5351_I2C::calcMSPLL(Si5351_MS_t* ptMS, double dBaseClock, double dOutput) {
+#if defined(SI5351_USE_BERKELEY_SOFTFLOAT_3)
+bool Si5351_I2C::calcMSPLL(Si5351_MS_t* ptMS, const float64_t f64BaseClock, const float64_t f64Output) {
+  return Si5351_CalcMSPLL(ptMS, f64BaseClock, f64Output);
+}
+
+bool Si5351_I2C::decalcMSPLL(float64_t* pf64Output, const float64_t f64BaseClock, const Si5351_MS_t* ptMS) {
+  return Si5351_DecalcMSPLL(pf64Output, f64BaseClock, ptMS);
+}
+
+bool Si5351_I2C::calcMSClk(Si5351_MS_t* ptMS, const float64_t f64BaseClock, const float64_t f64Output) {
+  return Si5351_CalcMSClk(ptMS, f64BaseClock, f64Output);
+}
+
+bool Si5351_I2C::decalcMSClk(float64_t* pf64Output, const float64_t f64BaseClock, const Si5351_MS_t* ptMS) {
+  return Si5351_DecalcMSClk(pf64Output, f64BaseClock, ptMS);
+}
+
+bool Si5351_I2C::calcSSP(
+  Si5351_SSP_t* ptSSP,
+  const Si5351_SSP_Mode_t tSSC_MODE,
+  const float64_t f64Freq_PFD,
+  const float64_t f64Ratio,
+  const float64_t f64SscAmp
+) {
+  return Si5351_CalcSSP(ptSSP, tSSC_MODE, f64Freq_PFD, f64Ratio, f64SscAmp);
+}
+
+#if SI5351_TYPE == 1
+bool Si5351_I2C::calcVCXO(uint32_t* pu32VCXO, const float64_t f64Ratio, const uint8_t u8APR) {
+  return Si5351_CalcVCXO(pu32VCXO, f64Ratio, u8APR);
+}
+#endif
+#else  /* SI5351_USE_BERKELEY_SOFTFLOAT_3 */
+bool Si5351_I2C::calcMSPLL(Si5351_MS_t* ptMS, const double dBaseClock, const double dOutput) {
   return Si5351_CalcMSPLL(ptMS, dBaseClock, dOutput);
 }
 
-bool Si5351_I2C::decalcMSPLL(double* pdOutput, double dBaseClock, const Si5351_MS_t* ptMS) {
+bool Si5351_I2C::decalcMSPLL(double* pdOutput, const double dBaseClock, const Si5351_MS_t* ptMS) {
   return Si5351_DecalcMSPLL(pdOutput, dBaseClock, ptMS);
 }
 
-bool Si5351_I2C::calcMSClk(Si5351_MS_t* ptMS, double dBaseClock, double dOutput) {
+bool Si5351_I2C::calcMSClk(Si5351_MS_t* ptMS, const double dBaseClock, const double dOutput) {
   return Si5351_CalcMSClk(ptMS, dBaseClock, dOutput);
 }
 
-bool Si5351_I2C::decalcMSClk(double* pdOutput, double dBaseClock, const Si5351_MS_t* ptMS) {
+bool Si5351_I2C::decalcMSClk(double* pdOutput, const double dBaseClock, const Si5351_MS_t* ptMS) {
   return Si5351_DecalcMSClk(pdOutput, dBaseClock, ptMS);
 }
 
 bool Si5351_I2C::calcSSP(
   Si5351_SSP_t* ptSSP,
-  const bool bEnable,
   const Si5351_SSP_Mode_t tSSC_MODE,
   const double dFreq_PFD,
   const double dRatio,
   const double dSscAmp
 ) {
-  return Si5351_CalcSSP(ptSSP, bEnable, tSSC_MODE, dFreq_PFD, dRatio, dSscAmp);
+  return Si5351_CalcSSP(ptSSP, tSSC_MODE, dFreq_PFD, dRatio, dSscAmp);
 }
 
 #if SI5351_TYPE == 1
@@ -333,4 +367,5 @@ bool Si5351_I2C::calcVCXO(uint32_t* pu32VCXO, const double dRatio, const uint8_t
   return Si5351_CalcVCXO(pu32VCXO, dRatio, u8APR);
 }
 #endif
+#endif  /* SI5351_USE_BERKELEY_SOFTFLOAT_3 */
 

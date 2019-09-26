@@ -1,6 +1,8 @@
 #ifndef _SI5351_I2C_H_
 #define _SI5351_I2C_H_
 
+/* Si5351 I2C Driver by AZO */
+
 #include "si5351.h"
 
 typedef void (*Si5351_I2C_BeginTransmission_t)(const uint8_t u8Address);
@@ -108,14 +110,31 @@ public:
   bool setXTALLoadCap(const Si5351_XTALLoadCap_t tXTALLoadCap);
 
   /* Utility */
-  static bool calcMSPLL(Si5351_MS_t* ptMS, double dBaseClock, double dOutput);
-  static bool decalcMSPLL(double* pdOutput, double dBaseClock, const Si5351_MS_t* ptMS);
-  static bool calcMSClk(Si5351_MS_t* ptMS, double dBaseClock, double dOutput);
-  static bool decalcMSClk(double* pdOutput, double dBaseClock, const Si5351_MS_t* ptMS);
+#if defined(SI5351_USE_BERKELEY_SOFTFLOAT_3)
+  static bool calcMSPLL(Si5351_MS_t* ptMS, const float64_t f64BaseClock, const float64_t f64Output);
+  static bool decalcMSPLL(float64_t* pf64Output, const float64_t f64BaseClock, const Si5351_MS_t* ptMS);
+  static bool calcMSClk(Si5351_MS_t* ptMS, const float64_t f64BaseClock, const float64_t f64Output);
+  static bool decalcMSClk(float64_t* pf64Output, const float64_t f64BaseClock, const Si5351_MS_t* ptMS);
 
   static bool calcSSP(
     Si5351_SSP_t* ptSSP,
-    const bool bEnable,
+    const Si5351_SSP_Mode_t tSSC_MODE,
+    const float64_t f64Freq_PFD,
+    const float64_t f64Ratio,
+    const float64_t f64SscAmp
+  );
+
+#if SI5351_TYPE == 1
+  static bool calcVCXO(uint32_t* pu32VCXO, const float64_t f64Ratio, const uint8_t u8APR);
+#endif
+#else  /* SI5351_USE_BERKELEY_SOFTFLOAT_3 */
+  static bool calcMSPLL(Si5351_MS_t* ptMS, const double dBaseClock, const double dOutput);
+  static bool decalcMSPLL(double* pdOutput, const double dBaseClock, const Si5351_MS_t* ptMS);
+  static bool calcMSClk(Si5351_MS_t* ptMS, const double dBaseClock, const double dOutput);
+  static bool decalcMSClk(double* pdOutput, const double dBaseClock, const Si5351_MS_t* ptMS);
+
+  static bool calcSSP(
+    Si5351_SSP_t* ptSSP,
     const Si5351_SSP_Mode_t tSSC_MODE,
     const double dFreq_PFD,
     const double dRatio,
@@ -125,6 +144,7 @@ public:
 #if SI5351_TYPE == 1
   static bool calcVCXO(uint32_t* pu32VCXO, const double dRatio, const uint8_t u8APR);
 #endif
+#endif  /* SI5351_USE_BERKELEY_SOFTFLOAT_3 */
 
   /* Access (Don't use) */
   static uint8_t gen_read(void* pSi5351_I2C, const uint8_t u8Reg);
