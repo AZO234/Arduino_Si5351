@@ -9,11 +9,13 @@ Si5351_I2C::Si5351_I2C() {
 }
 
 bool Si5351_I2C::initialize(
-  const Si5351_I2C_BeginTransmission_t tBeginTransmission,
-  const Si5351_I2C_RequestFrom_t       tRequestFrom,
-  const Si5351_I2C_Read_t              tRead,
-  const Si5351_I2C_Write_t             tWrite,
-  const Si5351_I2C_EndTransmission_t   tEndTransmission
+  Si5351_I2C_BeginTransmission_t tBeginTransmission,
+  Si5351_I2C_RequestFrom_t       tRequestFrom,
+  Si5351_I2C_Read_t              tRead,
+  Si5351_I2C_Write_t             tWrite,
+  Si5351_I2C_EndTransmission_t   tEndTransmission,
+  Si5351_MemoryBarrier_t         tMemoryBarrier,
+  void** ppLock
 ) {
   bool bValid = false;
 
@@ -30,7 +32,14 @@ bool Si5351_I2C::initialize(
     this->tWrite = tWrite;
     this->tEndTransmission = tEndTransmission;
 
-    bValid = Si5351_Initialize(&this->tSi5351, this, Si5351_I2C::gen_read, Si5351_I2C::gen_write);
+    bValid = Si5351_Initialize(
+      &this->tSi5351,
+      this,
+      Si5351_I2C::gen_read,
+      Si5351_I2C::gen_write,
+      tMemoryBarrier,
+      ppLock
+    );
   }
 
   return bValid;

@@ -19,15 +19,11 @@
 
 #include <si5351_i2c.h>
 
-static void Si5351_I2C_BeginTransmission(const uint8_t u8Address);
-static void Si5351_I2C_RequestFrom(const uint8_t u8Address, const uint8_t u8Count);
-static uint8_t Si5351_I2C_Read(const uint8_t u8Address);
-static void Si5351_I2C_Write(const uint8_t u8Value);
-static void Si5351_I2C_EndTransmission(void);
-
 Si5351_I2C g_oSi5351;
 
-void Si5351_I2C_BeginTransmission(const uint8_t u8Address) {
+void* pLock = NULL;
+
+static void Si5351_I2C_BeginTransmission(const uint8_t u8Address) {
 #if !defined(SI5351_I2C_USE_TINYWIREM)
   Wire.beginTransmission(u8Address);
 #else
@@ -35,13 +31,13 @@ void Si5351_I2C_BeginTransmission(const uint8_t u8Address) {
 #endif  /* SI5351_I2C_USE_TINYWIREM */
 }
 
-void Si5351_I2C_RequestFrom(const uint8_t u8Address, const uint8_t u8Count) {
+static void Si5351_I2C_RequestFrom(const uint8_t u8Address, const uint8_t u8Count) {
 #if !defined(SI5351_I2C_USE_TINYWIREM)
   Wire.requestFrom(u8Address, u8Count);
 #endif  /* SI5351_I2C_USE_TINYWIREM */
 }
 
-uint8_t Si5351_I2C_Read(const uint8_t u8Address) {
+static uint8_t Si5351_I2C_Read(const uint8_t u8Address) {
 #if !defined(SI5351_I2C_USE_TINYWIREM)
   (void)u8Address;
   return Wire.read();
@@ -52,7 +48,7 @@ uint8_t Si5351_I2C_Read(const uint8_t u8Address) {
 #endif  /* SI5351_I2C_USE_TINYWIREM */
 }
 
-void Si5351_I2C_Write(const uint8_t u8Value) {
+static void Si5351_I2C_Write(const uint8_t u8Value) {
 #if !defined(SI5351_I2C_USE_TINYWIREM)
   Wire.write(u8Value);
 #else
@@ -60,12 +56,15 @@ void Si5351_I2C_Write(const uint8_t u8Value) {
 #endif  /* SI5351_I2C_USE_TINYWIREM */
 }
 
-void Si5351_I2C_EndTransmission(void) {
+static void Si5351_I2C_EndTransmission(void) {
 #if !defined(SI5351_I2C_USE_TINYWIREM)
   Wire.endTransmission();
 #else
   TinyWireM.endTransmission();
 #endif  /* SI5351_I2C_USE_TINYWIREM */
+}
+
+static void Si5351_MemoryBarrier(void) {
 }
 
 void setup() {
@@ -81,7 +80,9 @@ void setup() {
     Si5351_I2C_RequestFrom,
     Si5351_I2C_Read,
     Si5351_I2C_Write,
-    Si5351_I2C_EndTransmission
+    Si5351_I2C_EndTransmission,
+    Si5351_MemoryBarrier,
+    &pLock
   );
 
 #if !defined(SI5351_I2C_USE_TINYWIREM)

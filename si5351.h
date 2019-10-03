@@ -305,16 +305,26 @@ typedef enum Si5351_XTALLoadCap_t_ {
 /* Access */
 typedef uint8_t (*Si5351_Read_t)(void* pInstance, const uint8_t u8Reg);
 typedef void (*Si5351_Write_t)(void* pInstance, const uint8_t u8Reg, uint8_t u8Value);
+typedef void (*Si5351_MemoryBarrier_t)(void);
 
 /* Si5351 */
 typedef struct Si5351_t_ {
-  void*          pInstance;
-  Si5351_Read_t  tRead;
+  void* pInstance;
+  Si5351_Read_t tRead;
   Si5351_Write_t tWrite;
+  Si5351_MemoryBarrier_t tMemoryBarrier;
+  void** ppLock;
 } Si5351_t;
 
 /* Initialize */
-bool Si5351_Initialize(Si5351_t* ptSi5351, void* pInstance, const Si5351_Read_t tRead, const Si5351_Write_t tWrite);
+bool Si5351_Initialize(
+  Si5351_t* ptSi5351,
+  void* pInstance,
+  const Si5351_Read_t tRead,
+  const Si5351_Write_t tWrite,
+  const Si5351_MemoryBarrier_t tMemoryBarrier,
+  void** ppLock
+);
 bool Si5351_InitDevice(const Si5351_t* ptSi5351);
 
 /* Status */

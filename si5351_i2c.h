@@ -21,7 +21,9 @@ public:
     Si5351_I2C_RequestFrom_t       tRequestFrom,
     Si5351_I2C_Read_t              tRead,
     Si5351_I2C_Write_t             tWrite,
-    Si5351_I2C_EndTransmission_t   tEndTransmission
+    Si5351_I2C_EndTransmission_t   tEndTransmission,
+    Si5351_MemoryBarrier_t         tMemoryBarrier,
+    void** ppLock
   );
   bool initDevice(void);
 

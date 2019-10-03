@@ -1,5 +1,6 @@
 /* Si5351 Driver by AZO */
 
+#include <stdio.h>
 #include "si5351.h"
 
 /*
@@ -167,16 +168,40 @@
 extern "C" {
 #endif /* __cplusplus */
 
+static void Lock(Si5351_t* ptSi5351) {
+  ptSi5351->tMemoryBarrier();
+  while(*ptSi5351->ppLock != ptSi5351) {
+    if(!*ptSi5351->ppLock) {
+      *ptSi5351->ppLock = ptSi5351;
+      ptSi5351->tMemoryBarrier();
+    }
+  }
+}
+
+static void Unlock(Si5351_t* ptSi5351) {
+  *ptSi5351->ppLock = NULL;
+  ptSi5351->tMemoryBarrier();
+}
+
 /* Initialize */
 
-bool Si5351_Initialize(Si5351_t* ptSi5351, void* pInstance, const Si5351_Read_t tRead, const Si5351_Write_t tWrite) {
+bool Si5351_Initialize(
+  Si5351_t* ptSi5351,
+  void* pInstance,
+  const Si5351_Read_t tRead,
+  const Si5351_Write_t tWrite,
+  const Si5351_MemoryBarrier_t tMemoryBarrier,
+  void** ppLock
+) {
   bool bValid = false;
 
-  if(ptSi5351 && pInstance && tRead && tWrite) {
+  if(ptSi5351 && pInstance && tRead && tWrite && tMemoryBarrier && ppLock) {
     bValid = true;
     ptSi5351->pInstance = pInstance;
     ptSi5351->tRead  = tRead;
     ptSi5351->tWrite = tWrite;
+    ptSi5351->tMemoryBarrier = tMemoryBarrier;
+    ptSi5351->ppLock = ppLock;
   }
 
   return bValid;
@@ -192,6 +217,7 @@ bool Si5351_InitDevice(const Si5351_t* ptSi5351) {
 
       /* Disable Outputs */
       /* Set CLKx_DIS high; Reg.3 = 0xFF */
+      Lock(ptSi5351);
       ptSi5351->tWrite(ptSi5351->pInstance, 0x03, 0xFF);
 
       /* Powerdown all output drivers */
@@ -202,6 +228,7 @@ bool Si5351_InitDevice(const Si5351_t* ptSi5351) {
 
       /* Set interrupt masks */
       ptSi5351->tWrite(ptSi5351->pInstance, 0x02, 0xF0);
+      Unlock(ptSi5351);
     }
   }
 
@@ -227,7 +254,9 @@ bool Si5351_GetStatus(Si5351_Status_t* ptStatus, const Si5351_t* ptSi5351) {
   if(ptStatus && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       u8Value = ptSi5351->tRead(ptSi5351->pInstance, 0x00);
+      Unlock(ptSi5351);
 
       ptStatus->bSYS_INIT = ((u8Value >> 7) & 0x1) ? true : false;
 #if SI5351_TYPE == 2
@@ -248,7 +277,9 @@ bool Si5351_GetStickyStatus(Si5351_Status_t* ptStatus, const Si5351_t* ptSi5351)
   if(ptStatus && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       u8Value = ptSi5351->tRead(ptSi5351->pInstance, 0x01);
+      Unlock(ptSi5351);
 
       ptStatus->bSYS_INIT = ((u8Value >> 7) & 0x1) ? true : false;
 #if SI5351_TYPE == 2
@@ -268,6 +299,7 @@ bool Si5351_SetStickyStatus(const Si5351_t* ptSi5351, const Si5351_Status_t* ptS
   if(ptSi5351 && ptStatus) {
     if(ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x01,
 #if SI5351_TYPE != 2
@@ -279,6 +311,7 @@ bool Si5351_SetStickyStatus(const Si5351_t* ptSi5351, const Si5351_Status_t* ptS
         (uint8_t)(ptStatus->bLOS      ? 1 : 0) << 4
 #endif
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -292,7 +325,9 @@ bool Si5351_GetStatusMask(Si5351_Status_t* ptStatus, const Si5351_t* ptSi5351) {
   if(ptStatus && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       u8Value = ptSi5351->tRead(ptSi5351->pInstance, 0x02);
+      Unlock(ptSi5351);
 
       ptStatus->bSYS_INIT = ((u8Value >> 7) & 0x1) ? true : false;
 #if SI5351_TYPE == 2
@@ -312,6 +347,7 @@ bool Si5351_SetStatusMask(const Si5351_t* ptSi5351, const Si5351_Status_t* ptSta
   if(ptSi5351 && ptStatus) {
     if(ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x02,
 #if SI5351_TYPE != 2
@@ -323,6 +359,7 @@ bool Si5351_SetStatusMask(const Si5351_t* ptSi5351, const Si5351_Status_t* ptSta
         (uint8_t)(ptStatus->bLOS      ? 1 : 0) << 4
 #endif
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -338,7 +375,9 @@ bool Si5351_GetOutputEnable(uint8_t* pu8Disable, const Si5351_t* ptSi5351) {
   if(pu8Disable && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       *pu8Disable = ptSi5351->tRead(ptSi5351->pInstance, 0x03);
+      Unlock(ptSi5351);
     }
   }
 
@@ -353,11 +392,13 @@ bool Si5351_SetOutputEnable(const Si5351_t* ptSi5351, const uint8_t u8Enable) {
     if(ptSi5351->tWrite) {
       bValid = Si5351_GetOutputEnable(&u8Value, ptSi5351);
       if(bValid) {
+        Lock(ptSi5351);
 #if SI5351_CLKNUM <= 3
         ptSi5351->tWrite(ptSi5351->pInstance, 0x03, (u8Value & ~(u8Enable & 0x7)));
 #else
         ptSi5351->tWrite(ptSi5351->pInstance, 0x03, (u8Value & ~u8Enable));
 #endif
+        Unlock(ptSi5351);
       }
     }
   }
@@ -373,11 +414,13 @@ bool Si5351_SetOutputDisable(const Si5351_t* ptSi5351, const uint8_t u8Disable) 
     if(ptSi5351->tWrite) {
       bValid = Si5351_GetOutputEnable(&u8Value, ptSi5351);
       if(bValid) {
+        Lock(ptSi5351);
 #if SI5351_CLKNUM <= 3
         ptSi5351->tWrite(ptSi5351->pInstance, 0x03, (u8Value | (u8Disable & 0x7)));
 #else
         ptSi5351->tWrite(ptSi5351->pInstance, 0x03, (u8Value | u8Disable));
 #endif
+        Unlock(ptSi5351);
       }
     }
   }
@@ -392,11 +435,13 @@ bool Si5351_GetOutputControlMask(uint8_t* pu8ControlMask, const Si5351_t* ptSi53
   if(pu8ControlMask && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
 #if SI5351_CLKNUM <= 3
       *pu8ControlMask = (ptSi5351->tRead(ptSi5351->pInstance, 0x09) & 0x7);
 #else
       *pu8ControlMask =  ptSi5351->tRead(ptSi5351->pInstance, 0x09);
 #endif
+      Unlock(ptSi5351);
     }
   }
 
@@ -409,11 +454,13 @@ bool Si5351_SetOutputControlMask(const Si5351_t* ptSi5351, const uint8_t u8Contr
   if(ptSi5351) {
     if(ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
 #if SI5351_CLKNUM <= 3
       ptSi5351->tWrite(ptSi5351->pInstance, 0x09, (u8ControlMask & 0x7));
 #else
       ptSi5351->tWrite(ptSi5351->pInstance, 0x09,  u8ControlMask);
 #endif
+      Unlock(ptSi5351);
     }
   }
 
@@ -430,7 +477,9 @@ bool Si5351_GetCLKIN_DIV(Si5351_CLKIN_DIV_t* ptCLKIN_DIV, const Si5351_t* ptSi53
   if(ptCLKIN_DIV && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       *ptCLKIN_DIV = ((ptSi5351->tRead(ptSi5351->pInstance, 0x0F) >> 6) & 0x3);
+      Unlock(ptSi5351);
     }
   }
 
@@ -443,10 +492,12 @@ bool Si5351_SetCLKIN_DIV(const Si5351_t* ptSi5351, const Si5351_CLKIN_DIV_t tCLK
   if(ptSi5351) {
     if(ptSi5351->tRead && ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x0F,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x0F) & ~(0x3 << 6)) | (((uint8_t)tCLKIN_DIV & 0x3) << 6)
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -461,7 +512,9 @@ bool Si5351_GetPLLA_SRC(Si5351_PLL_SRC_t* ptSrc, const Si5351_t* ptSi5351) {
   if(ptSrc && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       *ptSrc = (Si5351_PLL_SRC_t)((ptSi5351->tRead(ptSi5351->pInstance, 0x0F) >> 2) & 0x1);
+      Unlock(ptSi5351);
     }
   }
 
@@ -474,10 +527,12 @@ bool Si5351_SetPLLA_SRC(const Si5351_t* ptSi5351, const Si5351_PLL_SRC_t tSrc) {
   if(ptSi5351) {
     if(ptSi5351->tRead && ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x0F,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x0F) & ~(0x1 << 2)) | (((uint8_t)tSrc & 0x1) << 2)
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -490,7 +545,9 @@ bool Si5351_GetPLLB_SRC(Si5351_PLL_SRC_t* ptSrc, const Si5351_t* ptSi5351) {
   if(ptSrc && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       *ptSrc = (Si5351_PLL_SRC_t)((ptSi5351->tRead(ptSi5351->pInstance, 0x0F) >> 3) & 0x1);
+      Unlock(ptSi5351);
     }
   }
 
@@ -503,10 +560,12 @@ bool Si5351_SetPLLB_SRC(const Si5351_t* ptSi5351, const Si5351_PLL_SRC_t tSrc) {
   if(ptSi5351) {
     if(ptSi5351->tRead && ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x0F,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x0F) & ~(0x1 << 3)) | (((uint8_t)tSrc & 0x1) << 3)
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -526,7 +585,9 @@ bool Si5351_GetClkPowerDown(bool* pbPowerDown, const Si5351_t* ptSi5351, const S
     if(ptSi5351->tRead && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       *pbPowerDown = ((ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) >> 7) & 0x1) ? true : false;
+      Unlock(ptSi5351);
     }
   }
 
@@ -543,10 +604,12 @@ bool Si5351_SetClkPowerDown(const Si5351_t* ptSi5351, const Si5351_CLKNo_t tCLKN
     if(ptSi5351->tRead && ptSi5351->tWrite && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x10 + tCLKNo,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) & ~(0x1 << 7)) | ((uint8_t)(bPowerDown ? 1 : 0) << 7)
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -564,7 +627,9 @@ bool Si5351_GetClkMSSource(Si5351_CLK_MS_SRC_t* ptSrc, const Si5351_t* ptSi5351,
     if(ptSi5351->tRead && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       *ptSrc = (Si5351_CLK_MS_SRC_t)((ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) >> 5) & 0x1);
+      Unlock(ptSi5351);
     }
   }
 
@@ -581,10 +646,12 @@ bool Si5351_SetClkMSSource(const Si5351_t* ptSi5351, const Si5351_CLKNo_t tCLKNo
     if(ptSi5351->tRead && ptSi5351->tWrite && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x10 + tCLKNo,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) & ~(0x1 << 5)) | (((uint8_t)tSrc & 0x1) << 5)
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -602,7 +669,9 @@ bool Si5351_GetClkInvert(bool* pbInvert, const Si5351_t* ptSi5351, const Si5351_
     if(ptSi5351->tRead && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       *pbInvert = ((ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) >> 4) & 0x1) ? true : false;
+      Unlock(ptSi5351);
     }
   }
 
@@ -619,10 +688,12 @@ bool Si5351_SetClkInvert(const Si5351_t* ptSi5351, const Si5351_CLKNo_t tCLKNo, 
     if(ptSi5351->tRead && ptSi5351->tWrite && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x10 + tCLKNo,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) & ~(0x1 << 4)) | ((uint8_t)(bInvert ? 1 : 0) << 4)
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -640,7 +711,9 @@ bool Si5351_GetClkSrc(Si5351_CLK_SRC_t* ptSrc, const Si5351_t* ptSi5351, const S
     if(ptSi5351->tRead && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       *ptSrc = (Si5351_CLK_SRC_t)((ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) >> 2) & 0x3);
+      Unlock(ptSi5351);
     }
   }
 
@@ -657,10 +730,12 @@ bool Si5351_SetClkSrc(const Si5351_t* ptSi5351, const Si5351_CLKNo_t tCLKNo, con
     if(ptSi5351->tRead && ptSi5351->tWrite && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x10 + tCLKNo,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) & ~(0x3 << 2)) | (((uint8_t)tSrc & 0x3) << 2)
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -678,7 +753,9 @@ bool Si5351_GetClkIDrive(Si5351_CLK_IDRV_t* ptIDrv, const Si5351_t* ptSi5351, co
     if(ptSi5351->tRead && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       *ptIDrv = (Si5351_CLK_IDRV_t)(ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) & 0x3);
+      Unlock(ptSi5351);
     }
   }
 
@@ -695,10 +772,12 @@ bool Si5351_SetClkIDrive(const Si5351_t* ptSi5351, const Si5351_CLKNo_t tCLKNo, 
     if(ptSi5351->tRead && ptSi5351->tWrite && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x10 + tCLKNo,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) & ~0x3) | (tIDrv & 0x3)
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -717,7 +796,9 @@ bool Si5351_GetClkDisableState(Si5351_CLK_DIS_STATE_t* ptDisState, const Si5351_
     if(ptSi5351->tRead && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       *ptDisState = (Si5351_CLK_DIS_STATE_t)((ptSi5351->tRead(ptSi5351->pInstance, 0x18 + tCLKNo / 4) >> (2 * (tCLKNo % 4))) & 0x3);
+      Unlock(ptSi5351);
     }
   }
 
@@ -734,10 +815,12 @@ bool Si5351_SetClkDisableState(const Si5351_t* ptSi5351, const Si5351_CLKNo_t tC
     if(ptSi5351->tRead && ptSi5351->tWrite && tCLKNo < 8) {
 #endif
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x18 + tCLKNo / 4,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x18 + tCLKNo / 4) & ~(0x3 << (2 * (tCLKNo % 4)))) | (((uint8_t)tDisState & 0x3) << (2 * (tDisState % 4)))
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -782,10 +865,12 @@ bool Si5351_GetMSA(Si5351_MS_t* ptMS, const Si5351_t* ptSi5351) {
   if(ptMS && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       ptMS->bInteger = ((ptSi5351->tRead(ptSi5351->pInstance, 0x16) >> 6) & 0x1) ? true : false;
       for(u8Reg = 0; u8Reg < 8; u8Reg++) {
         u8Value[u8Reg] = ptSi5351->tRead(ptSi5351->pInstance, 0x1A + u8Reg);
       }
+      Unlock(ptSi5351);
       ptMS->u32MSX_P1 = ((uint32_t)(u8Value[2] & 0x03) << 16) | ((uint32_t)u8Value[3] << 8) | u8Value[4];
       ptMS->u32MSX_P2 = ((uint32_t)(u8Value[5] & 0x0F) << 16) | ((uint32_t)u8Value[6] << 8) | u8Value[7];
       ptMS->u32MSX_P3 = ((uint32_t)(u8Value[5] & 0xF0) << 12) | ((uint32_t)u8Value[0] << 8) | u8Value[1];
@@ -804,6 +889,7 @@ bool Si5351_SetMSA(const Si5351_t* ptSi5351, const Si5351_MS_t* ptMS) {
   if(ptSi5351 && ptMS) {
     if(ptSi5351->tRead && ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x16,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x16) & ~(0x1 << 6)) | ((uint8_t)(ptMS->bInteger ? 1 : 0) << 6)
@@ -817,6 +903,7 @@ bool Si5351_SetMSA(const Si5351_t* ptSi5351, const Si5351_MS_t* ptMS) {
       ptSi5351->tWrite(ptSi5351->pInstance, 0x1F, ((ptMS->u32MSX_P3 >> 12) & 0xF0) | ((ptMS->u32MSX_P2 >> 16) & 0xF));
       ptSi5351->tWrite(ptSi5351->pInstance, 0x20, ((ptMS->u32MSX_P2 >>  8) & 0xFF));
       ptSi5351->tWrite(ptSi5351->pInstance, 0x21, ( ptMS->u32MSX_P2        & 0xFF));
+      Unlock(ptSi5351);
     }
   }
 
@@ -832,10 +919,12 @@ bool Si5351_GetMSB(Si5351_MS_t* ptMS, const Si5351_t* ptSi5351) {
   if(ptMS && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       ptMS->bInteger = ((ptSi5351->tRead(ptSi5351->pInstance, 0x17) >> 6) & 0x1) ? true : false;
       for(u8Reg = 0; u8Reg < 8; u8Reg++) {
         u8Value[u8Reg] = ptSi5351->tRead(ptSi5351->pInstance, 0x22 + u8Reg);
       }
+      Unlock(ptSi5351);
       ptMS->u32MSX_P1 = ((uint32_t)(u8Value[2] & 0x03) << 16) | ((uint32_t)u8Value[3] << 8) | u8Value[4];
       ptMS->u32MSX_P2 = ((uint32_t)(u8Value[5] & 0x0F) << 16) | ((uint32_t)u8Value[6] << 8) | u8Value[7];
       ptMS->u32MSX_P3 = ((uint32_t)(u8Value[5] & 0xF0) << 12) | ((uint32_t)u8Value[0] << 8) | u8Value[1];
@@ -854,6 +943,7 @@ bool Si5351_SetMSB(const Si5351_t* ptSi5351, const Si5351_MS_t* ptMS) {
   if(ptSi5351 && ptMS) {
     if(ptSi5351->tRead && ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x17,
         (ptSi5351->tRead(ptSi5351->pInstance, 0x17) & ~(0x1 << 6)) | ((uint8_t)(ptMS->bInteger ? 1 : 0) << 6)
@@ -867,6 +957,7 @@ bool Si5351_SetMSB(const Si5351_t* ptSi5351, const Si5351_MS_t* ptMS) {
       ptSi5351->tWrite(ptSi5351->pInstance, 0x27, ((ptMS->u32MSX_P3 >> 12) & 0xF0) | ((ptMS->u32MSX_P2 >> 16) & 0xF));
       ptSi5351->tWrite(ptSi5351->pInstance, 0x28, ((ptMS->u32MSX_P2 >>  8) & 0xFF));
       ptSi5351->tWrite(ptSi5351->pInstance, 0x29, ( ptMS->u32MSX_P2        & 0xFF));
+      Unlock(ptSi5351);
     }
   }
 
@@ -886,6 +977,7 @@ bool Si5351_GetMS(Si5351_MS_t* ptMS, const Si5351_t* ptSi5351, const Si5351_CLKN
 #endif
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       if(tCLKNo < 6) {
         ptMS->bInteger = ((ptSi5351->tRead(ptSi5351->pInstance, 0x10 + tCLKNo) >> 6) & 0x1) ? true : false;
       } else {
@@ -894,6 +986,7 @@ bool Si5351_GetMS(Si5351_MS_t* ptMS, const Si5351_t* ptSi5351, const Si5351_CLKN
       for(u8Reg = 0; u8Reg < 8; u8Reg++) {
         u8Value[u8Reg] = ptSi5351->tRead(ptSi5351->pInstance, 0x2A + 8 * tCLKNo + u8Reg);
       }
+      Unlock(ptSi5351);
       ptMS->u32MSX_P1 = ((uint32_t)(u8Value[2] & 0x03) << 16) | ((uint32_t)u8Value[3] << 8) | u8Value[4];
       ptMS->u32MSX_P2 = ((uint32_t)(u8Value[5] & 0x0F) << 16) | ((uint32_t)u8Value[6] << 8) | u8Value[7];
       ptMS->u32MSX_P3 = ((uint32_t)(u8Value[5] & 0xF0) << 12) | ((uint32_t)u8Value[0] << 8) | u8Value[1];
@@ -916,6 +1009,7 @@ bool Si5351_SetMS(const Si5351_t* ptSi5351, const Si5351_CLKNo_t tCLKNo, const S
 #endif
     if(ptSi5351->tRead && ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       if(tCLKNo < 6) {
         ptSi5351->tWrite(
           ptSi5351->pInstance, 0x10,
@@ -934,6 +1028,7 @@ bool Si5351_SetMS(const Si5351_t* ptSi5351, const Si5351_CLKNo_t tCLKNo, const S
       ptSi5351->tWrite(ptSi5351->pInstance, 0x2F + 8 * tCLKNo, ((ptMS->u32MSX_P3 >> 12) & 0xF0) | ((ptMS->u32MSX_P2 >> 16) & 0xF));
       ptSi5351->tWrite(ptSi5351->pInstance, 0x30 + 8 * tCLKNo, ((ptMS->u32MSX_P2 >>  8) & 0xFF));
       ptSi5351->tWrite(ptSi5351->pInstance, 0x31 + 8 * tCLKNo, ( ptMS->u32MSX_P2        & 0xFF));
+      Unlock(ptSi5351);
     }
   }
 
@@ -966,7 +1061,9 @@ bool Si5351_GetSSPEnable(bool* pbEnable, const Si5351_t* ptSi5351) {
 
   if(pbEnable && ptSi5351) {
     if(ptSi5351->tRead) {
+      Lock(ptSi5351);
       *pbEnable = (ptSi5351->tRead(ptSi5351->pInstance, 0x95) & 0x80) ? true : false;
+      Unlock(ptSi5351);
     }
   }
 
@@ -978,10 +1075,12 @@ bool Si5351_SetSSPEnable(const Si5351_t* ptSi5351) {
 
   if(ptSi5351) {
     if(ptSi5351->tRead && ptSi5351->tWrite) {
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x95,
-		ptSi5351->tRead(ptSi5351->pInstance, 0x95) | 0x80
+        ptSi5351->tRead(ptSi5351->pInstance, 0x95) | 0x80
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -993,10 +1092,12 @@ bool Si5351_SetSSPDisable(const Si5351_t* ptSi5351) {
 
   if(ptSi5351) {
     if(ptSi5351->tRead && ptSi5351->tWrite) {
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x95,
-		ptSi5351->tRead(ptSi5351->pInstance, 0x95) & ~0x80
+        ptSi5351->tRead(ptSi5351->pInstance, 0x95) & ~0x80
       );
+      Unlock(ptSi5351);
     }
   }
 
@@ -1011,9 +1112,11 @@ bool Si5351_GetSSP(Si5351_SSP_t* ptSSP, const Si5351_t* ptSi5351) {
   if(ptSSP && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       for(u8Reg = 0; u8Reg < 13; u8Reg++) {
         au8Value[u8Reg] = ptSi5351->tRead(ptSi5351->pInstance, 0x95 + u8Reg);
       }
+      Unlock(ptSi5351);
 
       ptSSP->tSSC_MODE = (Si5351_SSP_Mode_t)((au8Value[2] >> 7) & 0x1);
       ptSSP->u16SSDN_P1 = ((uint16_t)(au8Value[5] & 0x0F) << 8) | au8Value[4];
@@ -1035,6 +1138,7 @@ bool Si5351_SetSSP(const Si5351_t* ptSi5351, const Si5351_SSP_t* ptSSP) {
   if(ptSi5351 && ptSSP) {
     if(ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(ptSi5351->pInstance, 0x96, (uint8_t)(ptSSP->u16SSDN_P2 & 0xFF));
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0x97,
@@ -1053,6 +1157,7 @@ bool Si5351_SetSSP(const Si5351_t* ptSi5351, const Si5351_SSP_t* ptSSP) {
       ptSi5351->tWrite(ptSi5351->pInstance, 0x9F, (uint8_t)(ptSSP->u16SSUP_P3 & 0xFF));
       ptSi5351->tWrite(ptSi5351->pInstance, 0xA0, (uint8_t)(ptSSP->u16SSUP_P1 & 0xFF));
       ptSi5351->tWrite(ptSi5351->pInstance, 0xA1, (uint8_t)((ptSSP->u16SSUP_P1 >> 8) & 0x0F));
+      Unlock(ptSi5351);
     }
   }
 
@@ -1070,9 +1175,11 @@ bool Si5351_GetVCXO(uint32_t* pu32VCXO, const Si5351_t* ptSi5351) {
   if(pu32VCXO && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       for(u8Reg = 0; u8Reg < 3; u8Reg++) {
         au8Value[u8Reg] = ptSi5351->tRead(ptSi5351->pInstance, 0xA2 + u8Reg);
       }
+      Unlock(ptSi5351);
 
       *pu32VCXO = (((uint32_t)au8Value[2] & 0x3F) << 16) | ((uint32_t)au8Value[1] << 8) | au8Value[0];
     }
@@ -1087,9 +1194,11 @@ bool Si5351_SetVCXO(const Si5351_t* ptSi5351, const uint32_t u32VCXO) {
   if(ptSi5351) {
     if(ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(ptSi5351->pInstance, 0xA2, (uint8_t)( u32VCXO        & 0xFF));
       ptSi5351->tWrite(ptSi5351->pInstance, 0xA3, (uint8_t)((u32VCXO >>  8) & 0xFF));
       ptSi5351->tWrite(ptSi5351->pInstance, 0xA4, (uint8_t)((u32VCXO >> 16) & 0x3F));
+      Unlock(ptSi5351);
     }
   }
 
@@ -1109,7 +1218,9 @@ bool Si5351_GetPhaseOffset(uint8_t* pu8PhOff, const Si5351_t* ptSi5351, const Si
 #endif
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       *pu8PhOff = (uint8_t)(ptSi5351->tRead(ptSi5351->pInstance, 0xA5 + tCLKNo) & 0x7F);
+      Unlock(ptSi5351);
     }
   }
 
@@ -1126,7 +1237,9 @@ bool Si5351_SetPhaseOffset(const Si5351_t* ptSi5351, const Si5351_CLKNo_t tCLKNo
 #endif
     if(ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(ptSi5351->pInstance, 0xA5 + tCLKNo, (u8PhOff & 0x7F));
+      Unlock(ptSi5351);
     }
   }
 
@@ -1141,7 +1254,9 @@ bool Si5351_PLLSoftReset(const Si5351_t* ptSi5351) {
   if(ptSi5351) {
     if(ptSi5351->tRead && ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(ptSi5351->pInstance, 0xB1, (ptSi5351->tRead(ptSi5351->pInstance, 0xB1) & 0x0F) | 0xA0);
+      Unlock(ptSi5351);
     }
   }
 
@@ -1156,7 +1271,9 @@ bool Si5351_GetXTALLoadCap(Si5351_XTALLoadCap_t* ptXTALLoadCap, const Si5351_t* 
   if(ptXTALLoadCap && ptSi5351) {
     if(ptSi5351->tRead) {
       bValid = true;
+      Lock(ptSi5351);
       *ptXTALLoadCap = (Si5351_XTALLoadCap_t)((ptSi5351->tRead(ptSi5351->pInstance, 0xB7) >> 6) & 0x3);
+      Unlock(ptSi5351);
     }
   }
 
@@ -1169,10 +1286,12 @@ bool Si5351_SetXTALLoadCap(const Si5351_t* ptSi5351, const Si5351_XTALLoadCap_t 
   if(ptSi5351) {
     if(ptSi5351->tRead && ptSi5351->tWrite) {
       bValid = true;
+      Lock(ptSi5351);
       ptSi5351->tWrite(
         ptSi5351->pInstance, 0xB7,
         (ptSi5351->tRead(ptSi5351->pInstance, 0xB7) & ~(0x3 << 6)) | (((uint8_t)tXTALLoadCap & 0x3) << 6)
       );
+      Unlock(ptSi5351);
     }
   }
 
