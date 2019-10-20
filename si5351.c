@@ -168,6 +168,8 @@
 extern "C" {
 #endif /* __cplusplus */
 
+#define MAX_DENO 1048574
+
 static void Lock(Si5351_t* ptSi5351) {
   ptSi5351->tMemoryBarrier();
   while(*ptSi5351->ppLock != ptSi5351) {
@@ -1320,17 +1322,17 @@ bool Si5351_CalcMSPLL(Si5351_MS_t* ptMS, const float64_t f64BaseClock, const flo
       ptMS->tDIV = SI5351_MS_DIV_BY1;
       f64After = f64_sub(f64Ratio, f64_roundToInt(f64Ratio, softfloat_round_minMag, false));
       u32a = f64_to_ui64(f64Ratio, softfloat_round_minMag, false);
-      u32b = f64_to_ui64(f64_mul(f64After, ui64_to_f64(524288)), softfloat_round_minMag, false);
+      u32b = f64_to_ui64(f64_mul(f64After, ui64_to_f64(MAX_DENO)), softfloat_round_minMag, false);
       if(u32b == 0) {
         ptMS->bInteger = true;
         ptMS->u32MSX_P1 = (u32a << 7) - 512;
         ptMS->u32MSX_P2 = 0;
-        ptMS->u32MSX_P3 = 524288;
+        ptMS->u32MSX_P3 = MAX_DENO;
       } else {
         ptMS->bInteger = false;
         ptMS->u32MSX_P1 = (u32a << 7) + f64_floor(f64_mul(ui64_to_f64(128), f64After)) - 512;
-        ptMS->u32MSX_P2 = (u32b << 7) - 524288 * f64_floor(f64_mul(ui64_to_f64(128), f64After));
-        ptMS->u32MSX_P3 = 524288;
+        ptMS->u32MSX_P2 = (u32b << 7) - MAX_DENO * f64_floor(f64_mul(ui64_to_f64(128), f64After));
+        ptMS->u32MSX_P3 = MAX_DENO;
       }
     }
   }
@@ -1357,7 +1359,7 @@ bool Si5351_DecalcMSPLL(float64_t* pf64Output, const float64_t f64BaseClock, con
       } else {
         bValid = true;
         f64Ratio = f64_add(f64_div(ui64_to_f64(ptMS->u32MSX_P1), ui64_to_f64(128)), ui64_to_f64(4));
-        f64Ratio = f64_add(f64Ratio, f64_div(ui64_to_f64(ptMS->u32MSX_P2), ui64_to_f64(128 * 524288)));
+        f64Ratio = f64_add(f64Ratio, f64_div(ui64_to_f64(ptMS->u32MSX_P2), ui64_to_f64(128 * MAX_DENO)));
       }
     }
     if(bValid) {
@@ -1388,7 +1390,7 @@ bool Si5351_CalcMSClk(Si5351_MS_t* ptMS, const float64_t f64BaseClock, const flo
       for(u32a = 0; u32a < 8; u32a++) {
         f64RatioTemp = f64_div(f64Ratio, ui64_to_f64(1 << (u32a + 1 + (ptMS->bDivBy4 ? 2 : 0))));
         f64AfterTemp = f64_sub(f64RatioTemp, f64_roundToInt(f64RatioTemp, softfloat_round_minMag, false));
-        if(f64_lt(f64RatioTemp, ui64_to_f64(4)) || f64_lt(ui64_to_f64(f64_to_ui64(f64_mul(f64AfterTemp, ui64_to_f64(524288)), softfloat_round_minMag, false) << 7), ui64_to_f64(524288 * f64_floor(f64_mul(ui64_to_f64(128), f64AfterTemp)))) || !f64_eq(f64Ratio, f64_mul(f64RatioTemp, ui64_to_f64(1 << (u32a + 1 + (ptMS->bDivBy4 ? 2 : 0)))))) {
+        if(f64_lt(f64RatioTemp, ui64_to_f64(4)) || f64_lt(ui64_to_f64(f64_to_ui64(f64_mul(f64AfterTemp, ui64_to_f64(MAX_DENO)), softfloat_round_minMag, false) << 7), ui64_to_f64(MAX_DENO * f64_floor(f64_mul(ui64_to_f64(128), f64AfterTemp)))) || !f64_eq(f64Ratio, f64_mul(f64RatioTemp, ui64_to_f64(1 << (u32a + 1 + (ptMS->bDivBy4 ? 2 : 0)))))) {
           break;
         }
       }
@@ -1400,17 +1402,17 @@ bool Si5351_CalcMSClk(Si5351_MS_t* ptMS, const float64_t f64BaseClock, const flo
       f64Ratio = f64_div(f64Ratio, ui64_to_f64(1 << (ptMS->tDIV + (ptMS->bDivBy4 ? 2 : 0))));
       f64After = f64_sub(f64Ratio, f64_roundToInt(f64Ratio, softfloat_round_minMag, false));
       u32a = f64_to_ui64(f64Ratio, softfloat_round_minMag, false);
-      u32b = f64_to_ui64(f64_mul(f64After, ui64_to_f64(524288)), softfloat_round_minMag, false);
+      u32b = f64_to_ui64(f64_mul(f64After, ui64_to_f64(MAX_DENO)), softfloat_round_minMag, false);
       if(u32b == 0) {
         ptMS->bInteger = true;
         ptMS->u32MSX_P1 = (u32a << 7) - 512;
         ptMS->u32MSX_P2 = 0;
-        ptMS->u32MSX_P3 = 524288;
+        ptMS->u32MSX_P3 = MAX_DENO;
       } else {
         ptMS->bInteger = false;
         ptMS->u32MSX_P1 = (u32a << 7) + f64_floor(f64_mul(ui64_to_f64(128), f64After)) - 512;
-        ptMS->u32MSX_P2 = (u32b << 7) - 524288 * f64_floor(f64_mul(ui64_to_f64(128), f64After));
-        ptMS->u32MSX_P3 = 524288;
+        ptMS->u32MSX_P2 = (u32b << 7) - MAX_DENO * f64_floor(f64_mul(ui64_to_f64(128), f64After));
+        ptMS->u32MSX_P3 = MAX_DENO;
       }
     }
   }
@@ -1437,7 +1439,7 @@ bool Si5351_DecalcMSClk(float64_t* pf64Output, const float64_t f64BaseClock, con
       } else {
         bValid = true;
         f64Ratio = f64_add(f64_div(ui64_to_f64(ptMS->u32MSX_P1), ui64_to_f64(128)), ui64_to_f64(4));
-        f64Ratio = f64_add(f64Ratio, f64_div(ui64_to_f64(ptMS->u32MSX_P2), ui64_to_f64(128 * 524288)));
+        f64Ratio = f64_add(f64Ratio, f64_div(ui64_to_f64(ptMS->u32MSX_P2), ui64_to_f64(128 * MAX_DENO)));
       }
     }
     if(bValid) {
@@ -1529,17 +1531,17 @@ bool Si5351_CalcMSPLL(Si5351_MS_t* ptMS, const double dBaseClock, const double d
       ptMS->tDIV = SI5351_MS_DIV_BY1;
       dAfter = dRatio - (uint32_t)dRatio;
       u32a = (uint32_t)dRatio;
-      u32b = (uint32_t)(dAfter * 524288);
+      u32b = (uint32_t)(dAfter * MAX_DENO);
       if(u32b == 0) {
         ptMS->bInteger = true;
         ptMS->u32MSX_P1 = (u32a << 7) - 512;
         ptMS->u32MSX_P2 = 0;
-        ptMS->u32MSX_P3 = 524288;
+        ptMS->u32MSX_P3 = MAX_DENO;
       } else {
         ptMS->bInteger = false;
         ptMS->u32MSX_P1 = (u32a << 7) + (uint32_t)((128 * dAfter) + 0.5) - 512;
-        ptMS->u32MSX_P2 = (u32b << 7) - 524288 * (uint32_t)((128 * dAfter) + 0.5);
-        ptMS->u32MSX_P3 = 524288;
+        ptMS->u32MSX_P2 = (u32b << 7) - MAX_DENO * (uint32_t)((128 * dAfter) + 0.5);
+        ptMS->u32MSX_P3 = MAX_DENO;
       }
     }
   }
@@ -1566,7 +1568,7 @@ bool Si5351_DecalcMSPLL(double* pdOutput, const double dBaseClock, const Si5351_
       } else {
         bValid = true;
         dRatio = ptMS->u32MSX_P1 / 128 + 4;
-        dRatio += (double)ptMS->u32MSX_P2 / (128 * 524288);
+        dRatio += (double)ptMS->u32MSX_P2 / (128 * MAX_DENO);
       }
     }
     if(bValid) {
@@ -1597,7 +1599,7 @@ bool Si5351_CalcMSClk(Si5351_MS_t* ptMS, const double dBaseClock, const double d
       for(u32a = 0; u32a < 8; u32a++) {
         dRatioTemp = dRatio / (1 << (u32a + 1 + (ptMS->bDivBy4 ? 2 : 0)));
         dAfterTemp = dRatioTemp - (uint32_t)dRatioTemp;
-        if(dRatioTemp < 4 || (((uint32_t)dAfterTemp * 524288) << 7) < (524288 * (uint32_t)((128 * dAfterTemp) + 0.5)) || dRatio != dRatioTemp * (1 << (u32a + 1 + (ptMS->bDivBy4 ? 2 : 0)))) {
+        if(dRatioTemp < 4 || (((uint32_t)dAfterTemp * MAX_DENO) << 7) < (MAX_DENO * (uint32_t)((128 * dAfterTemp) + 0.5)) || dRatio != dRatioTemp * (1 << (u32a + 1 + (ptMS->bDivBy4 ? 2 : 0)))) {
           break;
         }
       }
@@ -1609,17 +1611,17 @@ bool Si5351_CalcMSClk(Si5351_MS_t* ptMS, const double dBaseClock, const double d
       dRatio /= 1 << (ptMS->tDIV + (ptMS->bDivBy4 ? 2 : 0));
       dAfter = dRatio - (uint32_t)dRatio;
       u32a = (uint32_t)dRatio;
-      u32b = (uint32_t)(dAfter * 524288);
+      u32b = (uint32_t)(dAfter * MAX_DENO);
       if(u32b == 0) {
         ptMS->bInteger = true;
         ptMS->u32MSX_P1 = (u32a << 7) - 512;
         ptMS->u32MSX_P2 = 0;
-        ptMS->u32MSX_P3 = 524288;
+        ptMS->u32MSX_P3 = MAX_DENO;
       } else {
         ptMS->bInteger = false;
         ptMS->u32MSX_P1 = (u32a << 7) + (uint32_t)((128 * dAfter) + 0.5) - 512;
-        ptMS->u32MSX_P2 = (u32b << 7) - 524288 * (uint32_t)((128 * dAfter) + 0.5);
-        ptMS->u32MSX_P3 = 524288;
+        ptMS->u32MSX_P2 = (u32b << 7) - MAX_DENO * (uint32_t)((128 * dAfter) + 0.5);
+        ptMS->u32MSX_P3 = MAX_DENO;
       }
     }
   }
@@ -1646,7 +1648,7 @@ bool Si5351_DecalcMSClk(double* pdOutput, const double dBaseClock, const Si5351_
       } else {
         bValid = true;
         dRatio = (double)ptMS->u32MSX_P1 / 128 + 4;
-        dRatio += (double)(ptMS->u32MSX_P2 >> 7) / 524288;
+        dRatio += (double)(ptMS->u32MSX_P2 >> 7) / MAX_DENO;
       }
     }
     if(bValid) {
